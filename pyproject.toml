@@ -22,6 +22,13 @@ dependencies = [
 live = ["hyperliquid-python-sdk", "eth-account", "ccxt"]
 dev = ["pytest", "pytest-asyncio", "ruff"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
