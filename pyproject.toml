@@ -1,0 +1,42 @@
+[project]
+name = "copyflow"
+version = "0.1.0"
+description = "Copy-trading service: strategies, on-chain wallets and CEX leaders -> paper/live auto-execution"
+requires-python = ">=3.12"
+dependencies = [
+  "copyflow-client @ git+https://github.com/rgobov/copyflow-client.git",
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic>=2",
+  "pydantic-settings",
+  "sqlalchemy[asyncio]",
+  "aiosqlite",
+  "asyncpg",
+  "httpx",
+  "redis",
+  "cryptography",
+  "aiogram>=3",
+]
+
+[project.optional-dependencies]
+live = ["hyperliquid-python-sdk", "eth-account", "ccxt"]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501", "B008"]  # B008: FastAPI Depends-in-defaults is the framework idiom
+
+[tool.ruff.lint.per-file-ignores]
+"app/core/models.py" = ["UP042"]
+"app/db/models.py" = ["UP042"]
+"client/models.py" = ["UP042"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
