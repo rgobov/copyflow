@@ -14,8 +14,11 @@ router = APIRouter(prefix="/api/v1")
 
 # ---- auth ----
 async def current_user(
-    x_api_key: str = Header(...), session: AsyncSession = Depends(get_session)
+    x_api_key: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
 ) -> User:
+    if not x_api_key:
+        raise HTTPException(401, "missing X-Api-Key header")
     user = (
         await session.execute(select(User).where(User.api_key == x_api_key))
     ).scalar_one_or_none()
@@ -87,6 +90,42 @@ async def health():
     return {"status": "ok"}
 
 
+@router.get("/me")
+async def me(user: User = Depends(current_user)):
+    return {"id": user.id, "display_name": user.display_name, "created_at": user.created_at}
+
+
+# ---- signals feed (leader tape) ----
+@router.get("/signals")
+async def signals_feed(limit: int = 50, session: AsyncSession = Depends(get_session)):
+    from app.db.models import Leader, Signal
+
+    rows = (await session.execute(
+        select(Signal, Leader.name)
+        .join(Leader, Leader.id == Signal.leader_id)
+        .order_by(Signal.created_at.desc())
+        .limit(min(limit, 200))
+    )).all()
+    out = []
+    for sig, leader_name in rows:
+        p = sig.payload or {}
+        inst = p.get("instrument", {})
+        out.append({
+            "signal_id": sig.id,
+            "leader_name": leader_name,
+            "leader_id": sig.leader_id,
+            "symbol": inst.get("symbol"),
+            "venue": inst.get("venue"),
+            "action": p.get("action"),
+            "side": p.get("side"),
+            "size_frac": p.get("size_frac"),
+            "size_abs_usd": p.get("size_abs_usd"),
+            "ref_price": p.get("ref_price"),
+            "ts": sig.created_at,
+        })
+    return out
+
+
 # ---- signals webhook (strategies) ----
 @router.post("/signals")
 async def post_signal(
@@ -118,7 +157,20 @@ async def post_signal(
 # ---- leaders ----
 @router.get("/leaders")
 async def list_leaders(session: AsyncSession = Depends(get_session)):
+    from sqlalchemy import func
+
+    from app.db.models import Signal, Subscription
+
     leaders = (await session.execute(select(Leader))).scalars().all()
+    counts = dict((await session.execute(
+        select(Signal.leader_id, func.count(Signal.id)).group_by(Signal.leader_id)
+    )).all())
+    last = dict((await session.execute(
+        select(Signal.leader_id, func.max(Signal.created_at)).group_by(Signal.leader_id)
+    )).all())
+    subs = dict((await session.execute(
+        select(Subscription.leader_id, func.count(Subscription.id)).group_by(Subscription.leader_id)
+    )).all())
     return [
         {
             "id": ld.id,
@@ -126,6 +178,9 @@ async def list_leaders(session: AsyncSession = Depends(get_session)):
             "source": ld.source,
             "equity_usd": ld.equity_usd,
             "is_active": ld.is_active,
+            "signal_count": counts.get(ld.id, 0),
+            "last_signal_at": last.get(ld.id),
+            "followers": subs.get(ld.id, 0),
         }
         for ld in leaders
     ]

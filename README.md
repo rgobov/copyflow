@@ -128,6 +128,21 @@ Live-проверка (Hyperliquid/Binance): заполнить `.env` ключ�
 создать подписку `mode=live` с `equity_usd` малым, проверить `/positions` и филлы
 на бирже. Реконсиляция сверяет позиции с леджером каждые 30 сек.
 
+## Веб-UI (`web/`)
+
+Next.js (App Router, TS): лента лидеров (статистика: сигналы, подписчики, последняя
+активность), дашборд подписчика (подписки, позиции, fills, tape сигналов),
+auth по API-ключу (хранится в localStorage, передаётся `X-Api-Key`).
+
+```bash
+cd web && npm install && npm run build && npm run start   # :3000
+# или npm run dev
+```
+
+Сервер разрешает CORS для localhost:3000. Эндпоинты фронта:
+`GET /me`, `GET /leaders` (+signal_count/followers/last_signal_at),
+`GET /signals` (tape), `GET /positions`, `GET /fills`, `GET /subscriptions`.
+
 ## Стадии
 
 1. [x] Сквозной автокопи: signal core + engine + paper/HL/Binance исполнители + Telegram
@@ -135,6 +150,6 @@ Live-проверка (Hyperliquid/Binance): заполнить `.env` ключ�
        риск-мониторинг открытых позиций (детект + пуш клиенту, без серверных пауз),
        режим доставки клиентскому приложению (подписанный webhook / telegram),
        per-subscription зашифрованные ключи исполнителей
-3. [ ] Веб-UI (Next.js): лента лидеров, дашборд, auth
+3. [x] Веб-UI (Next.js): лента лидеров, дашборд подписчика, auth по API-ключу
 4. [ ] On-chain лидеры + CEX read-only + режим «1 клик»
 5. [ ] Монетизация (builder fee / profit share) -> SaaS
