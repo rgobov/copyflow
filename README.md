@@ -1,3 +1,4 @@
+[![CI](https://github.com/rgobov/copyflow/actions/workflows/ci.yml/badge.svg)](https://github.com/rgobov/copyflow/actions/workflows/ci.yml)
 # copyflow
 
 Copy-trading / автоследование (аналог Tinkoff Pulse и 4collective) для крипторынка:
