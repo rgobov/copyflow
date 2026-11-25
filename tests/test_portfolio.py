@@ -89,10 +89,7 @@ async def test_strict_allocation_sizing(tmp_path):
     # user total 1000, allocation 0 -> skip; 50% -> size 500 notional
     async with SF() as s:
         sub = (await s.execute(select(Subscription))).scalar_one()
-        r = await eng.handle_signal(ev(Action.OPEN, "BTC", "binance", Side.LONG, 0.5))
-        o = await s.execute(select(__import__("app.db.models", fromlist=["Order"]).Order)
-                            .order_by(__import__("app.db.models", fromlist=["Order"]).Order.id.desc()))
-        sub = await s.get(Subscription, sub.id)
+        await eng.handle_signal(ev(Action.OPEN, "BTC", "binance", Side.LONG, 0.5))
 
     from app.db.models import Order
 
