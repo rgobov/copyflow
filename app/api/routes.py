@@ -3,13 +3,24 @@ from __future__ import annotations
 from copyflow_core.models import Action, Instrument, Side, SignalEvent
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_session
 from app.db.models import ExecutionMode, ExecutorKind, Fill, Leader, Subscription, User
 
 router = APIRouter(prefix="/api/v1")
+
+
+def _md():
+    """MultiMarketData with MOEX instrument registry (routing + FX)."""
+    from copyflow_core.instruments import InstrumentRegistry
+    from copyflow_core.marketdata import MultiMarketData
+
+    from app.config import settings
+
+    registry = InstrumentRegistry(verify_tls=settings.market_tls_verify)
+    return MultiMarketData(registry=registry, verify_tls=settings.market_tls_verify)
 
 
 # ---- auth ----
@@ -58,6 +69,7 @@ class SubscriptionIn(BaseModel):
     delivery: str = "auto"  # auto | webhook | telegram
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    allocation_pct: float = 0.0
     sizing: str = "equity_frac"
     fixed_usd: float = 0.0
     equity_usd: float = 1_000.0
@@ -75,6 +87,7 @@ class SubscriptionPatch(BaseModel):
     delivery: str | None = None
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    allocation_pct: float | None = None
     equity_usd: float | None = None
     leverage_cap: float | None = None
     max_price_deviation_pct: float | None = None
@@ -95,7 +108,30 @@ async def health():
 
 @router.get("/me")
 async def me(user: User = Depends(current_user)):
-    return {"id": user.id, "display_name": user.display_name, "created_at": user.created_at}
+    return {
+        "id": user.id,
+        "display_name": user.display_name,
+        "total_capital_usd": user.total_capital_usd,
+        "portfolio_currency": user.portfolio_currency,
+        "created_at": user.created_at,
+    }
+
+
+class MePatch(BaseModel):
+    display_name: str | None = None
+    total_capital_usd: float | None = None
+    portfolio_currency: str | None = None
+
+
+@router.patch("/me")
+async def patch_me(
+    body: MePatch, user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+):
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(user, field, value)
+    await session.commit()
+    return {"id": user.id, "total_capital_usd": user.total_capital_usd,
+            "portfolio_currency": user.portfolio_currency}
 
 
 # ---- signals feed (leader tape) ----
@@ -225,6 +261,7 @@ async def list_subscriptions(
             "sizing": s.sizing,
             "equity_usd": s.equity_usd,
             "peak_equity": s.peak_equity,
+            "allocation_pct": s.allocation_pct,
             "daily_loss_limit_pct": s.daily_loss_limit_pct,
             "max_drawdown_pct": s.max_drawdown_pct,
             "profit_share_pct": s.profit_share_pct,
@@ -243,11 +280,23 @@ async def create_subscription(
     leader = await session.get(Leader, body.leader_id)
     if not leader:
         raise HTTPException(404, "leader not found")
+    if body.allocation_pct > 100:
+        raise HTTPException(422, "allocation_pct must be 0..100")
+    if body.allocation_pct > 0:
+        others = (await session.execute(
+            select(func.coalesce(func.sum(Subscription.allocation_pct), 0.0))
+            .where(Subscription.user_id == user.id)
+        )).scalar_one()
+        if others + body.allocation_pct > 100.0:
+            raise HTTPException(
+                422,
+                f"allocation sum would be {others + body.allocation_pct:.1f}% (> 100%)",
+            )
     sub = Subscription(user_id=user.id, **body.model_dump())
     session.add(sub)
     await session.commit()
     await session.refresh(sub)
-    return {"id": sub.id}
+    return {"id": sub.id, "allocation_pct": sub.allocation_pct}
 
 
 @router.patch("/subscriptions/{sub_id}")
@@ -259,6 +308,19 @@ async def patch_subscription(
     if not sub:
         raise HTTPException(404, "subscription not found")
     updates = body.model_dump(exclude_none=True)
+    if "allocation_pct" in updates:
+        new_alloc = float(updates["allocation_pct"])
+        if new_alloc < 0 or new_alloc > 100:
+            raise HTTPException(422, "allocation_pct must be 0..100")
+        others = (await session.execute(
+            select(func.coalesce(func.sum(Subscription.allocation_pct), 0.0))
+            .where(Subscription.user_id == sub.user_id, Subscription.id != sub_id)
+        )).scalar_one()
+        if others + new_alloc > 100.0:
+            raise HTTPException(
+                422,
+                f"allocation sum would be {others + new_alloc:.1f}% (> 100%)",
+            )
     for field, value in updates.items():
         setattr(sub, field, value)
     await session.commit()
@@ -318,6 +380,123 @@ async def leader_earnings(
         )
     )).scalar_one_or_none() or 0.0
     return {"leader_id": leader_id, "accrued_leader": total}
+
+
+# ---- portfolios ----
+@router.get("/leader_portfolio")
+async def leader_portfolio(
+    leader_id: int,
+    ccy: str = "USD",
+    session: AsyncSession = Depends(get_session),
+):
+    """Leader's virtual multi-market portfolio (public: built from signals)."""
+    from copyflow_core.instruments import static_spec
+
+    from app.engine.leader_portfolio import leader_positions
+
+    md = _md()
+    rows = await leader_positions(session, leader_id)
+    items = []
+    totals_usd = 0.0
+    for pos in rows:
+        spec = static_spec(pos.venue, pos.symbol)
+        market = pos.market or (spec.market if spec else "crypto")
+        currency = pos.currency or (spec.currency if spec else "USDT")
+        qty_lots = pos.qty / (spec.lot_size if spec and spec.lot_size else 1.0)
+        value_native = pos.qty * pos.entry_price
+        usd = await md.convert(value_native, currency, "USD") or 0.0
+        totals_usd += usd
+        items.append({
+            "venue": pos.venue, "symbol": pos.symbol, "market": market,
+            "side": pos.side, "qty": pos.qty, "qty_lots": round(qty_lots, 4),
+            "entry_price": pos.entry_price, "currency": currency,
+            "value_native": round(value_native, 2), "value_usd": round(usd, 2),
+        })
+    display_total = await md.convert(totals_usd, "USD", ccy.upper())
+    return {
+        "leader_id": leader_id,
+        "display_currency": ccy.upper(),
+        "total_usd": round(totals_usd, 2),
+        "total_display": round(display_total or totals_usd, 2),
+        "positions": items,
+    }
+
+
+@router.get("/portfolio")
+async def follower_portfolio(
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Follower portfolio: allocations across strategies + aggregated positions."""
+    from app.engine.copier import default_executor_factory
+
+    md = _md()
+    subs = (await session.execute(
+        select(Subscription).where(Subscription.user_id == user.id)
+    )).scalars().all()
+
+    allocations = []
+    positions_all: list[dict] = []
+    total_equity_usd = 0.0
+    for sub in subs:
+        leader = await session.get(Leader, sub.leader_id)
+        try:
+            adapter = await default_executor_factory.get(sub)
+            positions = await adapter.positions()
+            state = await adapter.account_state()
+        except Exception:
+            positions, state = [], {"equity_usd": sub.equity_usd}
+        total_equity_usd += float(state.equity_usd)
+        allocations.append({
+            "subscription_id": sub.id,
+            "leader_id": sub.leader_id,
+            "leader_name": leader.name if leader else f"#{sub.leader_id}",
+            "allocation_pct": sub.allocation_pct,
+            "mode": sub.mode.value,
+            "equity_usd": float(state.equity_usd),
+        })
+        for p in positions:
+            market, currency = await md.market_currency(p.symbol)
+            value_native = p.qty * (p.entry_price or 0)
+            usd = await md.convert(value_native, currency, "USD") or 0.0
+            positions_all.append({
+                "subscription_id": sub.id, "venue": sub.executor.value,
+                "symbol": p.symbol, "market": market, "side": p.side,
+                "qty": p.qty, "entry_price": p.entry_price,
+                "currency": currency, "value_native": round(value_native, 2),
+                "value_usd": round(usd, 2),
+            })
+
+    allocated = sum(a["allocation_pct"] for a in allocations)
+    display = user.portfolio_currency or "USD"
+    by_market: dict[str, float] = {}
+    for p in positions_all:
+        by_market[p["market"]] = by_market.get(p["market"], 0.0) + p["value_usd"]
+    total_display = await md.convert(total_equity_usd, "USD", display)
+
+    return {
+        "display_currency": display,
+        "total_capital_usd": user.total_capital_usd,
+        "allocated_pct": round(allocated, 2),
+        "unallocated_pct": round(100.0 - allocated, 2),
+        "allocations": allocations,
+        "positions": positions_all,
+        "equity_usd": round(total_equity_usd, 2),
+        "equity_display": round(total_display or total_equity_usd, 2),
+        "by_market_usd": {k: round(v, 2) for k, v in sorted(by_market.items())},
+    }
+
+
+@router.get("/price")
+async def price(venue: str, symbol: str):
+
+    return {"venue": venue, "symbol": symbol, "price": await _md().price(venue, symbol)}
+
+
+@router.get("/fx")
+async def fx(from_ccy: str, to_ccy: str):
+
+    return {"from": from_ccy, "to": to_ccy, "rate": await _md().fx_rate(from_ccy, to_ccy)}
 
 
 # ---- account / positions ----

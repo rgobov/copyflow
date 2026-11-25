@@ -39,6 +39,9 @@ class User(Base):
     telegram_id: Mapped[str | None] = mapped_column(String(64), unique=True)
     display_name: Mapped[str] = mapped_column(String(128), default="")
     api_key: Mapped[str] = mapped_column(String(64), unique=True)
+    # follower portfolio: capital distributed across subscriptions by allocation_pct
+    total_capital_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    portfolio_currency: Mapped[str] = mapped_column(String(8), default="USD")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -93,6 +96,11 @@ class Subscription(Base):
     # None -> global defaults from settings, 0 -> free
     profit_share_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     leader_share_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # follower portfolio allocation: share of user.total_capital_usd in this
+    # strategy; effective equity = total_capital * allocation_pct / 100.
+    # Strict semantics: 0 -> signals skipped ("no allocation").
+    allocation_pct: Mapped[float] = mapped_column(Float, default=0.0)
 
     # risk thresholds: server only detects breaches and pushes alerts,
     # the client decides what to do (no server-side pause / flatten)
@@ -246,3 +254,21 @@ class LedgerEntry(Base):
 
 Index("ix_ledger_sub_created", LedgerEntry.subscription_id, LedgerEntry.created_at)
 Index("ix_ledger_leader", LedgerEntry.leader_id, LedgerEntry.created_at)
+
+
+class LeaderPosition(Base):
+    """Leader's virtual multi-market portfolio, built from their own signals."""
+
+    __tablename__ = "leader_positions"
+    __table_args__ = (UniqueConstraint("leader_id", "venue", "symbol", name="uq_lp_leader_inst"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    leader_id: Mapped[int] = mapped_column(ForeignKey("leaders.id"))
+    venue: Mapped[str] = mapped_column(String(32))
+    symbol: Mapped[str] = mapped_column(String(64))
+    market: Mapped[str] = mapped_column(String(16), default="crypto")  # crypto|ru|us|in
+    currency: Mapped[str] = mapped_column(String(8), default="USDT")
+    side: Mapped[str] = mapped_column(String(8))  # long | short
+    qty: Mapped[float] = mapped_column(Float, default=0.0)
+    entry_price: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

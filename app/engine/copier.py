@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.bus import EventBus
-from app.db.models import Fill, Order, OrderStatus, Signal, Subscription
+from app.db.models import Fill, Order, OrderStatus, Signal, Subscription, User
 from app.engine.risk import evaluate_risk
 
 log = logging.getLogger(__name__)
@@ -130,6 +130,21 @@ class CopyEngine:
                 session.add(Signal(id=event.id, leader_id=event.leader_id, payload=event.model_dump(mode="json")))
                 await session.commit()
 
+            # leader's virtual multi-market portfolio
+            from sqlalchemy import select as _sel
+
+            from app.db.models import Leader as _Leader
+            from app.engine.leader_portfolio import apply_leader_signal
+
+            _leader = (await session.execute(
+                _sel(_Leader).where(_Leader.id == event.leader_id)
+            )).scalar_one_or_none()
+            if _leader is not None:
+                await apply_leader_signal(
+                    session, event, float(_leader.equity_usd or 10_000.0)
+                )
+                await session.commit()
+
             for sub in subs:
                 try:
                     await self._process_subscription(session, sub, event)
@@ -191,8 +206,18 @@ class CopyEngine:
 
         ref_price = await adapter.mark_price(symbol) or event.ref_price
 
+        # ---- follower portfolio allocation (strict) ----
+        user = await session.get(User, sub.user_id)
+        effective_equity = equity_now = (await adapter.account_state()).equity_usd
+        if user and user.total_capital_usd > 0:
+            effective_equity = user.total_capital_usd * (sub.allocation_pct or 0.0) / 100.0
+            if effective_equity <= 0:
+                self._record_skip(session, sub, event, client_order_id, symbol,
+                                  "no allocation (set allocation_pct > 0)")
+                await session.commit()
+                return
+
         # ---- risk: detect + snapshot (no server-side pause; client decides) ----
-        equity_now = (await adapter.account_state()).equity_usd
         await evaluate_risk(session, sub, equity_now)
         from app.engine.billing import accrue_fees
 
@@ -213,7 +238,7 @@ class CopyEngine:
                 follower_positions=positions,
                 ref_price=ref_price or event.ref_price or 0.0,
                 current_pos=current_pos,
-                equity_now_usd=equity_now,
+                equity_now_usd=effective_equity,
             )
         except SkipSignal as e:
             self._record_skip(session, sub, event, client_order_id, symbol, e.reason)

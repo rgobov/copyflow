@@ -55,6 +55,19 @@ const en: Record<string, string> = {
   "leaders.following": "following ✓",
   "leaders.active": "active",
   "leaders.off": "off",
+
+  "portfolio.title": "Portfolio",
+  "portfolio.settings": "Settings",
+  "portfolio.capital": "Total capital, USD",
+  "portfolio.currency": "Display currency",
+  "portfolio.save": "Save",
+  "portfolio.summary": "Summary",
+  "portfolio.total": "Portfolio value",
+  "portfolio.allocated": "Allocated",
+  "portfolio.unallocated": "unallocated",
+  "portfolio.allocation": "Allocation by strategy",
+  "portfolio.byMarket": "Allocation by market",
+  "portfolio.equity": "equity",
 };
 
 const ru: Record<string, string> = {
@@ -108,6 +121,19 @@ const ru: Record<string, string> = {
   "leaders.following": "вы подписаны ✓",
   "leaders.active": "активен",
   "leaders.off": "выключен",
+
+  "portfolio.title": "Портфель",
+  "portfolio.settings": "Настройки",
+  "portfolio.capital": "Общий капитал, USD",
+  "portfolio.currency": "Валюта отображения",
+  "portfolio.save": "Сохранить",
+  "portfolio.summary": "Сводка",
+  "portfolio.total": "Стоимость портфеля",
+  "portfolio.allocated": "Распределено",
+  "portfolio.unallocated": "свободно",
+  "portfolio.allocation": "Аллокация по стратегиям",
+  "portfolio.byMarket": "Аллокация по рынкам",
+  "portfolio.equity": "эквити",
 };
 
 const dicts: Record<Lang, Record<string, string>> = { en, ru };

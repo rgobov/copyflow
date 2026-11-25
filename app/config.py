@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     billing_profit_share_pct: float = 15.0
     billing_leader_share_pct: float = 70.0  # % of the fee going to the leader
 
+    # public market data: disable TLS verification when the network MITMs
+    # public endpoints with self-signed certs (some RU ISPs)
+    market_tls_verify: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:

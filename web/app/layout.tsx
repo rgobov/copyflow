@@ -16,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/" className="brand">copyflow</a>
             <div className="navlinks">
               <a href="/">Dashboard</a>
+              <a href="/portfolio">Portfolio</a>
               <a href="/leaders">Leaders</a>
               <a href="/login">API key</a>
             </div>

@@ -55,7 +55,36 @@ export type Fill = {
   fee_usd: number;
 };
 
-export type Me = { id: number; display_name: string };
+export type Me = { id: number; display_name: string; total_capital_usd: number; portfolio_currency: string };
+
+export type PortfolioPosition = {
+  subscription_id: number; venue: string; symbol: string; market: string;
+  side: string; qty: number; entry_price: number; currency: string;
+  value_native: number; value_usd: number;
+};
+
+export type Portfolio = {
+  display_currency: string;
+  total_capital_usd: number;
+  allocated_pct: number;
+  unallocated_pct: number;
+  allocations: {
+    subscription_id: number; leader_id: number; leader_name: string;
+    allocation_pct: number; mode: string; equity_usd: number;
+  }[];
+  positions: PortfolioPosition[];
+  equity_usd: number;
+  equity_display: number;
+  by_market_usd: Record<string, number>;
+};
+
+export type LeaderPortfolio = {
+  leader_id: number;
+  display_currency: string;
+  total_usd: number;
+  total_display: number;
+  positions: PortfolioPosition[];
+};
 
 export type BillingSummary = {
   subscription_id: number;
