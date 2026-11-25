@@ -56,3 +56,10 @@ export type Fill = {
 };
 
 export type Me = { id: number; display_name: string };
+
+export type BillingSummary = {
+  subscription_id: number;
+  accrued_platform: number;
+  accrued_leader: number;
+  entries: { kind: string; amount_usd: number; profit_usd: number; equity_usd: number; note: string | null; created_at: string }[];
+};

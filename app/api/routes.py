@@ -227,6 +227,7 @@ async def list_subscriptions(
             "peak_equity": s.peak_equity,
             "daily_loss_limit_pct": s.daily_loss_limit_pct,
             "max_drawdown_pct": s.max_drawdown_pct,
+            "profit_share_pct": s.profit_share_pct,
             "webhook_url": s.webhook_url,
         }
         for s in subs
@@ -262,6 +263,61 @@ async def patch_subscription(
         setattr(sub, field, value)
     await session.commit()
     return {"id": sub.id, **updates}
+
+
+# ---- billing ----
+@router.get("/billing")
+async def billing_summary(
+    subscription_id: int,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    from sqlalchemy import func
+
+    from app.db.models import LedgerEntry, LedgerKind
+
+    sub = await session.get(Subscription, subscription_id)
+    if not sub:
+        raise HTTPException(404, "subscription not found")
+    kind = LedgerEntry.kind
+    totals = dict((await session.execute(
+        select(kind, func.sum(LedgerEntry.amount_usd))
+        .where(LedgerEntry.subscription_id == subscription_id)
+        .group_by(kind)
+    )).all())
+    entries = (await session.execute(
+        select(LedgerEntry).where(LedgerEntry.subscription_id == subscription_id)
+        .order_by(LedgerEntry.id.desc()).limit(50)
+    )).scalars().all()
+    return {
+        "subscription_id": subscription_id,
+        "accrued_platform": totals.get(LedgerKind.PLATFORM_FEE, 0.0),
+        "accrued_leader": totals.get(LedgerKind.LEADER_COMMISSION, 0.0),
+        "entries": [
+            {"kind": e.kind.value, "amount_usd": e.amount_usd, "profit_usd": e.profit_usd,
+             "equity_usd": e.equity_usd, "note": e.note, "created_at": e.created_at}
+            for e in entries
+        ],
+    }
+
+
+@router.get("/leader_earnings")
+async def leader_earnings(
+    leader_id: int,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    from sqlalchemy import func
+
+    from app.db.models import LedgerEntry, LedgerKind
+
+    total = (await session.execute(
+        select(func.sum(LedgerEntry.amount_usd)).where(
+            LedgerEntry.leader_id == leader_id,
+            LedgerEntry.kind == LedgerKind.LEADER_COMMISSION,
+        )
+    )).scalar_one_or_none() or 0.0
+    return {"leader_id": leader_id, "accrued_leader": total}
 
 
 # ---- account / positions ----

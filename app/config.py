@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     reconcile_interval_sec: float = 30.0
     risk_check_interval_sec: float = 10.0
 
+    # billing: total profit share on crystallized gains (live mode), split
+    billing_profit_share_pct: float = 15.0
+    billing_leader_share_pct: float = 70.0  # % of the fee going to the leader
+
 
 @lru_cache
 def get_settings() -> Settings:

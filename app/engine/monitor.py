@@ -66,6 +66,9 @@ class RiskMonitor:
                     continue
 
                 daily, risk = await evaluate_risk(session, sub, equity)
+                from app.engine.billing import accrue_fees
+
+                await accrue_fees(session, sub, equity)
 
                 # edge detection: push once per breach episode
                 notify = (

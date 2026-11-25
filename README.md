@@ -157,6 +157,21 @@ cd web && npm install && npm run build && npm run start   # :3000
 `GET /me`, `GET /leaders` (+signal_count/followers/last_signal_at),
 `GET /signals` (tape), `GET /positions`, `GET /fills`, `GET /subscriptions`.
 
+## Монетизация (profit share, high-water mark)
+
+- Комиссия берётся только с **новых** прибылей: при пробое `peak_equity`
+  (high-water mark) кристализуется прибыль и начисляется доля (по умолчанию
+  15%, split: 70% лидеру / 30% платформе — настраивается глобально в `.env`
+  или пер-подпиской `profit_share_pct` / `leader_share_pct`, 0 = бесплатно)
+- Только **live**-подписки; paper — виртуальный, не тарифицируется
+- Просадка ниже пика не заряжает повторно — новое начисление только после
+  нового максимума
+- Леджер `ledger_entries` (platform_fee / leader_commission) с аудитом:
+  сумма, прибыль, HWM, заметка
+- `GET /billing?subscription_id=N` — начисления подписки;
+  `GET /leader_earnings?leader_id=N` — заработок лидера (для выплат)
+- HL builder fee (0.05% к нашим ордерам) — через `HL_BUILDER_CODE` в исполнителе
+
 ## Стадии
 
 1. [x] Сквозной автокопи: signal core + engine + paper/HL/Binance исполнители + Telegram
@@ -167,4 +182,5 @@ cd web && npm install && npm run build && npm run start   # :3000
 3. [x] Веб-UI (Next.js): лента лидеров, дашборд подписчика, auth по API-ключу
 4. [x] On-chain кошельки + CEX-лидеры с read-only ключами + режим «1 клик»
        (кнопка Follow в вебе; клиентский `confirm_mode` по умолчанию = confirm)
-5. [ ] Монетизация (builder fee / profit share) -> SaaS
+5. [x] Монетизация: profit share с high-water mark, леджер комиссий, API биллинга
+       и лидерских начислений, HL builder fee -> SaaS-фундамент готов

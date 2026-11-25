@@ -76,3 +76,38 @@ def test_api_surface(client):
     assert leaders[0]["signal_count"] == 2
     assert leaders[0]["last_signal_at"] is not None
     assert leaders[0]["followers"] == 0
+
+
+def test_billing_summary(client):
+    c = client
+    h = {"X-Api-Key": "webkey"}
+    c.post("/api/v1/leaders", headers=h, json={"name": "L", "equity_usd": 10_000})
+    c.post("/api/v1/subscriptions", headers=h, json={"leader_id": 1, "executor": "paper", "mode": "paper"})
+
+    # write ledger entries directly (engine accrual covered in test_billing)
+    from app.db.models import LedgerEntry, LedgerKind
+
+    async def seed_entries():
+        from app.db import database as db
+
+        SF = db.make_session_factory(db.engine)
+        async with SF() as s:
+            s.add(LedgerEntry(subscription_id=1, leader_id=1, kind=LedgerKind.PLATFORM_FEE,
+                              amount_usd=4.5, profit_usd=100, equity_usd=1100, hwm_before=1000))
+            s.add(LedgerEntry(subscription_id=1, leader_id=1, kind=LedgerKind.LEADER_COMMISSION,
+                              amount_usd=10.5, profit_usd=100, equity_usd=1100, hwm_before=1000))
+            await s.commit()
+
+    import asyncio
+
+    asyncio.run(seed_entries())
+
+    r = c.get("/api/v1/billing?subscription_id=1", headers=h).json()
+    assert r["accrued_platform"] == pytest.approx(4.5)
+    assert r["accrued_leader"] == pytest.approx(10.5)
+    assert len(r["entries"]) == 2
+
+    r = c.get("/api/v1/leader_earnings?leader_id=1", headers=h).json()
+    assert r["accrued_leader"] == pytest.approx(10.5)
+
+    assert c.get("/api/v1/billing?subscription_id=99", headers=h).status_code == 404

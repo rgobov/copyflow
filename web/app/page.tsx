@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, getKey } from "@/lib/api";
-import type { Fill, Signal, Subscription } from "@/lib/types";
+import type { BillingSummary, Fill, Signal, Subscription } from "@/lib/types";
 
 type Position = { symbol: string; side: string; qty: number; entry_price: number };
 
@@ -11,6 +11,7 @@ export default function DashboardPage() {
   const [fills, setFills] = useState<Fill[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [positions, setPositions] = useState<Record<number, Position[]>>({});
+  const [billing, setBilling] = useState<Record<number, BillingSummary>>({});
   const [hasKey] = useState(() => typeof window !== "undefined" && !!getKey());
 
   useEffect(() => {
@@ -28,6 +29,11 @@ export default function DashboardPage() {
       api<{ positions: Position[] }>(`/positions?subscription_id=${s.id}`)
         .then((r) => setPositions((p) => ({ ...p, [s.id]: r.positions })))
         .catch(() => {});
+      if (s.mode === "live") {
+        api<BillingSummary>(`/billing?subscription_id=${s.id}`)
+          .then((b) => setBilling((prev) => ({ ...prev, [s.id]: b })))
+          .catch(() => {});
+      }
     });
   }, [subs]);
 
@@ -66,6 +72,14 @@ export default function DashboardPage() {
                   day -{s.daily_loss_limit_pct}% / dd {s.max_drawdown_pct}%
                 </span>
               </div>
+              {s.mode === "live" && billing[s.id] && (
+                <div className="row">
+                  <span className="k">fees accrued</span>
+                  <span>
+                    platform ${billing[s.id].accrued_platform.toFixed(2)} · leader ${billing[s.id].accrued_leader.toFixed(2)}
+                  </span>
+                </div>
+              )}
               <h2>Positions</h2>
               {(positions[s.id] || []).length === 0 ? (
                 <div className="muted">flat</div>

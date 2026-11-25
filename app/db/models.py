@@ -89,6 +89,11 @@ class Subscription(Base):
     webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     webhook_secret: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
+    # billing: profit share charged on new equity highs (live mode only);
+    # None -> global defaults from settings, 0 -> free
+    profit_share_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    leader_share_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # risk thresholds: server only detects breaches and pushes alerts,
     # the client decides what to do (no server-side pause / flatten)
     daily_loss_limit_pct: Mapped[float] = mapped_column(Float, default=10.0)
@@ -215,3 +220,29 @@ class SignalDelivery(Base):
 
 
 Index("ix_deliveries_sub_created", SignalDelivery.subscription_id, SignalDelivery.created_at)
+
+
+class LedgerKind(str, enum.Enum):
+    PLATFORM_FEE = "platform_fee"
+    LEADER_COMMISSION = "leader_commission"
+
+
+class LedgerEntry(Base):
+    """Monetization ledger: profit-share accruals (never netted against equity)."""
+
+    __tablename__ = "ledger_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subscription_id: Mapped[int] = mapped_column(ForeignKey("subscriptions.id"))
+    leader_id: Mapped[int] = mapped_column(ForeignKey("leaders.id"))
+    kind: Mapped[LedgerKind] = mapped_column(Enum(LedgerKind))
+    amount_usd: Mapped[float] = mapped_column(Float)
+    profit_usd: Mapped[float] = mapped_column(Float)  # crystallized gain this entry is based on
+    equity_usd: Mapped[float] = mapped_column(Float)
+    hwm_before: Mapped[float] = mapped_column(Float)
+    note: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+Index("ix_ledger_sub_created", LedgerEntry.subscription_id, LedgerEntry.created_at)
+Index("ix_ledger_leader", LedgerEntry.leader_id, LedgerEntry.created_at)

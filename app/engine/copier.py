@@ -194,6 +194,9 @@ class CopyEngine:
         # ---- risk: detect + snapshot (no server-side pause; client decides) ----
         equity_now = (await adapter.account_state()).equity_usd
         await evaluate_risk(session, sub, equity_now)
+        from app.engine.billing import accrue_fees
+
+        await accrue_fees(session, sub, equity_now)
 
         leader_equity = await self._leader_equity(session, sub, event)
 
