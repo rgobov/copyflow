@@ -1,57 +1,34 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import httpx
-from copyflow_core.models import Action, Instrument, Side, SignalEvent
+
+from app.sources.base import LeaderPositionPoller
 
 log = logging.getLogger(__name__)
 
 HL_API = "https://api.hyperliquid.xyz"
 
 
-class HlWalletPoller:
+class HlWalletPoller(LeaderPositionPoller):
     """Polls a Hyperliquid wallet's perp positions and emits diff-based signals.
 
-    clearninghouseState -> positions snapshot; snapshot diff produces
-    open / increase / reduce / flip / close events proportional to leader equity.
+    clearinghouseState -> positions snapshot; snapshot diff produces
+    open / increase / reduce / flip / close events with notional-based
+    size_frac (position * mid price / leader equity).
     """
 
-    def __init__(
-        self,
-        bus,
-        session_factory,
-        poll_interval: float = 7.0,
-        api_url: str = HL_API,
-    ):
-        self._bus = bus
-        self._session_factory = session_factory
-        self._interval = poll_interval
-        self._api_url = api_url.rstrip("/")
-        self._snapshots: dict[int, dict[str, dict]] = {}  # leader_id -> coin -> {szi, side}
-        self._client = httpx.AsyncClient(timeout=10.0)
-        self._task: asyncio.Task | None = None
+    venue = "hyperliquid"
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run(), name="hl-wallet-poller")
+    def __init__(self, bus, session_factory, poll_interval: float = 7.0, api_url: str = HL_API):
+        super().__init__(bus, session_factory, poll_interval)
+        self._api_url = api_url.rstrip("/")
+        self._client = httpx.AsyncClient(timeout=10.0)
 
     async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
         await self._client.aclose()
-
-    async def _run(self) -> None:
-        while True:
-            try:
-                await self.poll_once()
-            except Exception:
-                log.exception("hl poll failed")
-            await asyncio.sleep(self._interval)
+        await super().stop()
 
     async def _leaders(self):
         from sqlalchemy import select
@@ -64,13 +41,16 @@ class HlWalletPoller:
             )
             return list(res.scalars().all())
 
-    async def _fetch_positions(self, wallet: str) -> dict[str, dict]:
-        r = await self._client.post(
-            f"{self._api_url}/info", json={"type": "clearinghouseState", "user": wallet}
-        )
-        r.raise_for_status()
-        state = r.json()
-        out: dict[str, dict] = {}
+    async def _fetch(self, leader):
+        wallet = (leader.config or {}).get("wallet")
+        if not wallet:
+            return {}, {}, float(leader.equity_usd or 10_000.0)
+        state = (await self._info({"type": "clearinghouseState", "user": wallet}))
+        mids = (await self._info({"type": "allMids"})).get("mids", {})
+        equity = float(state.get("marginSummary", {}).get("accountValue", 0) or leader.equity_usd or 10_000.0)
+
+        positions: dict[str, dict] = {}
+        prices: dict[str, float] = {}
         for item in state.get("assetPositions", []):
             pos = item.get("position", {})
             try:
@@ -79,71 +59,13 @@ class HlWalletPoller:
                 continue
             if abs(szi) < 1e-12:
                 continue
-            out[pos.get("coin", "")] = {"szi": szi, "side": "long" if szi > 0 else "short"}
-        return out
+            coin = pos.get("coin", "")
+            positions[coin] = {"szi": szi, "side": "long" if szi > 0 else "short"}
+            mid = mids.get(coin)
+            prices[coin] = float(mid) if mid else 0.0
+        return positions, prices, equity
 
-    async def poll_once(self) -> list[SignalEvent]:
-        leaders = await self._leaders()
-        events: list[SignalEvent] = []
-        for leader in leaders:
-            wallet = (leader.config or {}).get("wallet")
-            if not wallet:
-                continue
-            equity = float(leader.equity_usd or 10_000.0)
-            current = await self._fetch_positions(wallet)
-            prev = self._snapshots.get(leader.id, {})
-            events.extend(await self._diff(leader.id, equity, prev, current))
-            self._snapshots[leader.id] = current
-        return events
-
-    async def _diff(
-        self, leader_id: int, equity: float, prev: dict[str, dict], current: dict[str, dict]
-    ) -> list[SignalEvent]:
-        events: list[SignalEvent] = []
-        for coin, cur in current.items():
-            old = prev.get(coin)
-            side = Side(cur["side"])
-            szi, old_szi = abs(cur["szi"]), abs(old["szi"]) if old else 0.0
-            if old is None:
-                action = Action.OPEN
-            elif cur["side"] != old["side"]:
-                action = Action.FLIP
-            elif szi > old_szi + 1e-12:
-                action = Action.INCREASE
-            elif szi < old_szi - 1e-12:
-                action = Action.REDUCE
-            else:
-                continue
-
-            if action == Action.REDUCE:
-                frac = (old_szi - szi) / old_szi
-            elif action in (Action.OPEN, Action.FLIP):
-                frac = szi / equity
-            else:
-                frac = (szi - old_szi) / equity
-
-            events.append(
-                SignalEvent(
-                    leader_id=leader_id,
-                    instrument=Instrument(venue="hyperliquid", symbol=coin),
-                    action=action,
-                    side=side,
-                    size_frac=round(frac, 6),
-                )
-            )
-
-        for coin, old in prev.items():
-            if coin not in current:
-                events.append(
-                    SignalEvent(
-                        leader_id=leader_id,
-                        instrument=Instrument(venue="hyperliquid", symbol=coin),
-                        action=Action.CLOSE,
-                        side=Side(old["side"]),
-                        size_frac=1.0,
-                    )
-                )
-
-        for ev in events:
-            await self._bus.publish(ev)
-        return events
+    async def _info(self, payload: dict) -> dict:
+        r = await self._client.post(f"{self._api_url}/info", json=payload)
+        r.raise_for_status()
+        return r.json()

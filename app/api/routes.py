@@ -46,6 +46,9 @@ class LeaderIn(BaseModel):
     source: str = "strategy"
     config: dict = {}
     equity_usd: float = 10_000.0
+    # for cex_trader leaders: read-only keys, encrypted at rest
+    api_key: str | None = None
+    api_secret: str | None = None
 
 
 class SubscriptionIn(BaseModel):
@@ -190,7 +193,16 @@ async def list_leaders(session: AsyncSession = Depends(get_session)):
 async def create_leader(
     body: LeaderIn, user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
 ):
-    leader = Leader(name=body.name, source=body.source, config=body.config, equity_usd=body.equity_usd)
+    from app.security import encrypt
+
+    config = dict(body.config or {})
+    if body.source == "cex_trader":
+        if not body.api_key or not body.api_secret:
+            raise HTTPException(422, "cex_trader requires read-only api_key and api_secret")
+        config["exchange"] = config.get("exchange", "binance")
+        config["api_key"] = encrypt(body.api_key)
+        config["api_secret"] = encrypt(body.api_secret)
+    leader = Leader(name=body.name, source=body.source, config=config, equity_usd=body.equity_usd)
     session.add(leader)
     await session.commit()
     await session.refresh(leader)

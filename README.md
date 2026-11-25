@@ -128,6 +128,20 @@ Live-проверка (Hyperliquid/Binance): заполнить `.env` ключ�
 создать подписку `mode=live` с `equity_usd` малым, проверить `/positions` и филлы
 на бирже. Реконсиляция сверяет позиции с леджером каждые 30 сек.
 
+## Лидеры: on-chain и CEX с read-only ключами
+
+Три типа лидеров (`source`):
+- `strategy` — ваши системы шлют сигналы через `POST /signals` webhook
+- `hl_wallet` — любой кошелёк Hyperliquid, публичные позиции (поллер диффит
+  снапшот каждые 7 сек, не нужен даже ключ)
+- `cex_trader` — трейдер CEX (Binance USD-M) с **read-only** API-ключами:
+  ключи шифруются Fernet'ом при создании (`POST /leaders` с `api_key/api_secret`,
+  обязательны trade/withdraw выключены на бирже), поллер читает позиции каждые 15 сек
+
+Дифф позиций → канонические сигналы (open/increase/reduce/flip/close) с
+notional-based `size_frac` (изменение позиции × mark price / equity лидера).
+Подписка на CEX-лидера — кнопка **Follow** на `/leaders` (1 клик, paper-режим).
+
 ## Веб-UI (`web/`)
 
 Next.js (App Router, TS): лента лидеров (статистика: сигналы, подписчики, последняя
@@ -151,5 +165,6 @@ cd web && npm install && npm run build && npm run start   # :3000
        режим доставки клиентскому приложению (подписанный webhook / telegram),
        per-subscription зашифрованные ключи исполнителей
 3. [x] Веб-UI (Next.js): лента лидеров, дашборд подписчика, auth по API-ключу
-4. [ ] On-chain лидеры + CEX read-only + режим «1 клик»
+4. [x] On-chain кошельки + CEX-лидеры с read-only ключами + режим «1 клик»
+       (кнопка Follow в вебе; клиентский `confirm_mode` по умолчанию = confirm)
 5. [ ] Монетизация (builder fee / profit share) -> SaaS
