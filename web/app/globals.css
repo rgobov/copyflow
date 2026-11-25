@@ -27,6 +27,13 @@ body {
 .navlinks a { color: var(--muted); text-decoration: none; margin-left: 20px; }
 .navlinks a:hover { color: var(--text); }
 
+.langswitch { margin-left: 20px; }
+.langswitch .lang {
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  padding: 3px 8px; margin-top: 0; margin-left: 4px; font-size: 12px; border-radius: 6px;
+}
+.langswitch .lang.on { color: var(--text); border-color: var(--accent); }
+
 .main { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
 h1 { font-size: 20px; margin: 0 0 16px; }

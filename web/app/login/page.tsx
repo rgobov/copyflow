@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { api, getKey, setKey } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Me } from "@/lib/types";
 
 export default function LoginPage() {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [existing, setExisting] = useState<string | null>(null);
@@ -23,35 +25,32 @@ export default function LoginPage() {
   async function submit() {
     setError("");
     try {
-      const saved = getKey();
-      if (saved) localStorage.removeItem("cf_api_key");
       setKey(value);
-      const me = await api<Me>("/me");
-      setMe(me);
+      await api<Me>("/me");
       window.location.href = "/";
     } catch (e: any) {
+      localStorage.removeItem("cf_api_key");
       setError(e.message || "login failed");
     }
   }
 
   return (
     <div className="login">
-      <h1>API key</h1>
-      <p className="muted">
-        Вставьте ключ пользователя copyflow (создаётся на сервере). Ключ хранится
-        локально в браузере и передаётся заголовком <code>X-Api-Key</code>.
-      </p>
+      <h1>{t("login.title")}</h1>
+      <p className="muted">{t("login.description")}</p>
       {existing && me && (
-        <p className="muted">Текущий ключ активен: {me.display_name || `user #${me.id}`}</p>
+        <p className="muted">
+          {t("login.currentActive")} {me.display_name || `user #${me.id}`}
+        </p>
       )}
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="api key"
+        placeholder={t("login.placeholder")}
         onKeyDown={(e) => e.key === "Enter" && submit()}
       />
       {error && <div className="error">{error}</div>}
-      <button onClick={submit}>Войти</button>
+      <button onClick={submit}>{t("login.button")}</button>
     </div>
   );
 }

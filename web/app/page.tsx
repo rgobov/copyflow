@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { api, getKey } from "@/lib/api";
-import type { BillingSummary, Fill, Signal, Subscription } from "@/lib/types";
+import { useI18n } from "@/lib/i18n";
+import type { Fill, Signal, Subscription } from "@/lib/types";
 
 type Position = { symbol: string; side: string; qty: number; entry_price: number };
 
 export default function DashboardPage() {
+  const { t } = useI18n();
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const [fills, setFills] = useState<Fill[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -40,49 +42,52 @@ export default function DashboardPage() {
   if (!hasKey) {
     return (
       <>
-        <h1>Dashboard</h1>
-        <div className="empty">Введите API key на странице <a href="/login">login</a></div>
+        <h1>{t("dash.title")}</h1>
+        <div className="empty">
+          {t("dash.needsKey")} <a href="/login">{t("dash.needsKeyLink")}</a>
+        </div>
       </>
     );
   }
 
   return (
     <>
-      <h1>Dashboard</h1>
+      <h1>{t("dash.title")}</h1>
 
-      <h2>Subscriptions</h2>
+      <h2>{t("dash.sub")}</h2>
       {subs === null ? (
-        <div className="empty">loading…</div>
+        <div className="empty">{t("dash.loading")}</div>
       ) : subs.length === 0 ? (
-        <div className="empty">нет подписок — создайте через API</div>
+        <div className="empty">{t("dash.noSubs")}</div>
       ) : (
         <div className="grid">
           {subs.map((s) => (
             <div key={s.id} className="card">
               <h3>
-                subscription #{s.id} · leader #{s.leader_id}
+                {t("dash.sub")} #{s.id} · {t("dash.leader")} #{s.leader_id}
               </h3>
-              <div className="row"><span className="k">executor</span><span>{s.executor} ({s.mode})</span></div>
-              <div className="row"><span className="k">delivery</span><span>{s.delivery}</span></div>
-              <div className="row"><span className="k">equity</span><span>${s.equity_usd.toFixed(2)}</span></div>
-              <div className="row"><span className="k">peak equity</span><span>${s.peak_equity.toFixed(2)}</span></div>
+              <div className="row"><span className="k">{t("dash.executor")}</span><span>{s.executor} ({s.mode})</span></div>
+              <div className="row"><span className="k">{t("dash.delivery")}</span><span>{s.delivery}</span></div>
+              <div className="row"><span className="k">{t("dash.equity")}</span><span>${s.equity_usd.toFixed(2)}</span></div>
+              <div className="row"><span className="k">{t("dash.peak")}</span><span>${s.peak_equity.toFixed(2)}</span></div>
               <div className="row">
-                <span className="k">limits</span>
+                <span className="k">{t("dash.limits")}</span>
                 <span>
-                  day -{s.daily_loss_limit_pct}% / dd {s.max_drawdown_pct}%
+                  {t("dash.dayLoss")} -{s.daily_loss_limit_pct}% / {t("dash.drawdown")} {s.max_drawdown_pct}%
                 </span>
               </div>
               {s.mode === "live" && billing[s.id] && (
                 <div className="row">
-                  <span className="k">fees accrued</span>
+                  <span className="k">{t("dash.fees")}</span>
                   <span>
-                    platform ${billing[s.id].accrued_platform.toFixed(2)} · leader ${billing[s.id].accrued_leader.toFixed(2)}
+                    {t("dash.feePlatform")} ${billing[s.id].accrued_platform.toFixed(2)} ·{" "}
+                    {t("dash.feeLeader")} ${billing[s.id].accrued_leader.toFixed(2)}
                   </span>
                 </div>
               )}
-              <h2>Positions</h2>
+              <h2>{t("dash.positions")}</h2>
               {(positions[s.id] || []).length === 0 ? (
-                <div className="muted">flat</div>
+                <div className="muted">{t("dash.flat")}</div>
               ) : (
                 (positions[s.id] || []).map((p) => (
                   <div key={p.symbol} className="row">
@@ -96,9 +101,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <h2>Fills</h2>
+      <h2>{t("dash.fills")}</h2>
       {fills.length === 0 ? (
-        <div className="empty">no fills yet</div>
+        <div className="empty">{t("dash.noFills")}</div>
       ) : (
         <table>
           <thead>
@@ -119,13 +124,13 @@ export default function DashboardPage() {
         </table>
       )}
 
-      <h2>Signal tape</h2>
+      <h2>{t("dash.tape")}</h2>
       {signals.length === 0 ? (
-        <div className="empty">no signals yet</div>
+        <div className="empty">{t("dash.noSignals")}</div>
       ) : (
         <table>
           <thead>
-            <tr><th>leader</th><th>action</th><th>side</th><th>symbol</th><th>size</th><th>ref price</th></tr>
+            <tr><th>{t("dash.leader")}</th><th>action</th><th>side</th><th>symbol</th><th>size</th><th>ref price</th></tr>
           </thead>
           <tbody>
             {signals.map((s) => (
@@ -144,3 +149,8 @@ export default function DashboardPage() {
     </>
   );
 }
+
+type BillingSummary = {
+  accrued_platform: number;
+  accrued_leader: number;
+};

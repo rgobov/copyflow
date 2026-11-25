@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { api, getKey } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Leader } from "@/lib/types";
 
 export default function LeadersPage() {
+  const { t } = useI18n();
   const [leaders, setLeaders] = useState<Leader[] | null>(null);
   const [error, setError] = useState("");
   const [following, setFollowing] = useState<Set<number>>(new Set());
@@ -39,19 +41,20 @@ export default function LeadersPage() {
 
   return (
     <>
-      <h1>Leaders</h1>
+      <h1>{t("leaders.title")}</h1>
       {error && <div className="error">{error}</div>}
       {leaders === null ? (
-        <div className="empty">loading…</div>
+        <div className="empty">{t("dash.loading")}</div>
       ) : leaders.length === 0 ? (
-        <div className="empty">пока нет лидеров</div>
+        <div className="empty">{t("leaders.empty")}</div>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>leader</th><th>source</th><th>equity</th>
-              <th>signals</th><th>followers</th><th>last signal</th><th>status</th>
-              <th></th>
+              <th>{t("leaders.colLeader")}</th><th>{t("leaders.colSource")}</th>
+              <th>{t("leaders.colEquity")}</th><th>{t("leaders.colSignals")}</th>
+              <th>{t("leaders.colFollowers")}</th><th>{t("leaders.colLast")}</th>
+              <th>{t("leaders.colStatus")}</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -65,17 +68,17 @@ export default function LeadersPage() {
                 <td className="muted">
                   {l.last_signal_at ? new Date(l.last_signal_at + "Z").toLocaleString() : "—"}
                 </td>
-                <td>{l.is_active ? <span className="badge paper">active</span> : <span className="badge">off</span>}</td>
+                <td>{l.is_active ? <span className="badge paper">{t("leaders.active")}</span> : <span className="badge">{t("leaders.off")}</span>}</td>
                 <td>
                   {following.has(l.id) ? (
-                    <span className="badge paper">following ✓</span>
+                    <span className="badge paper">{t("leaders.following")}</span>
                   ) : (
                     <button
                       disabled={busy === l.id || !hasKey}
                       onClick={() => follow(l.id)}
-                      title={hasKey ? "подписаться (paper, 1 клик)" : "сначала введите API key"}
+                      title={hasKey ? t("leaders.followHint") : t("leaders.needsKeyHint")}
                     >
-                      {busy === l.id ? "…" : "Follow"}
+                      {busy === l.id ? "…" : t("leaders.follow")}
                     </button>
                   )}
                 </td>

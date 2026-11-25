@@ -157,6 +157,10 @@ cd web && npm install && npm run build && npm run start   # :3000
 `GET /me`, `GET /leaders` (+signal_count/followers/last_signal_at),
 `GET /signals` (tape), `GET /positions`, `GET /fills`, `GET /subscriptions`.
 
+Интерфейс мультиязычный: EN/RU (переключатель в навбаре, автоопределение по
+браузеру, хранение в localStorage). Новые языки добавляются одним словарём
+в `web/lib/i18n.tsx`.
+
 ## Монетизация (profit share, high-water mark)
 
 - Комиссия берётся только с **новых** прибылей: при пробое `peak_equity`
